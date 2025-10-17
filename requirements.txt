@@ -6,6 +6,7 @@ numpy
 nuitka
 scikit-learn
 msgpack-asgi
+gunicorn
 httpx
 
 # --- PyTorch pour CPU seulement ---
