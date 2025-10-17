@@ -7,12 +7,12 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app"
     healthCheckPath: /healthz
-    # 'disks' is now at the correct indentation level
-    disks:
-      - name: storage-data
-        mountPath: /opt/render/project/src/storage
-        sizeGB: 1
-    # 'envVars' is also at the correct indentation level
     envVars:
       - key: PYTHON_VERSION
         value: '3.11.0'
+
+# Disks are defined at the root level, not inside services
+disks:
+  - name: storage-data
+    mountPath: /opt/render/project/src/storage
+    sizeGB: 1
