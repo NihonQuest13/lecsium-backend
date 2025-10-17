@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: nihon-quest-api
+    env: python
+    region: frankfurt
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app"
+    healthCheck:
+      path: "/"
+      initialDelaySeconds: 180 # <-- Voici le réglage magique ! 3 minutes d'attente.
+    disks:
+      - name: storage-data
+        mountPath: /opt/render/project/src/storage
+        sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0 # Assure la compatibilité
