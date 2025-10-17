@@ -6,7 +6,11 @@ services:
     plan: starter
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app"
-    healthCheckPath: /
+    healthCheckPath: /healthz # <-- On utilise notre nouvel endpoint rapide !
+    disks:
+      - name: storage-data
+        mountPath: /opt/render/project/src/storage
+        sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: '3.11.0'
