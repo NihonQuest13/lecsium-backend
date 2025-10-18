@@ -47,6 +47,21 @@ if not DEEPL_API_KEY:
 
 CURRENT_API_KEY_INDEX = 0
 
+# --- AJOUT : CONFIGURATION CENTRALISÉE DES MODÈLES ---
+# Modifiez les valeurs ici pour changer les modèles utilisés dans toute l'application.
+MODEL_CONFIG = {
+    # Modèle par défaut pour la génération de chapitres (streaming et non-streaming)
+    "default_generation": "deepseek/deepseek-r1-0528:free",
+    
+    # Modèle rapide pour les tâches utilitaires (ex: lecture hiragana)
+    "hiragana_reading": "deepseek/deepseek-r1-0528:free",
+    
+    # Modèle utilisé pour la génération/mise à jour de la roadmap (résumé)
+    "roadmap_summary": "deepseek/deepseek-r1-0528:free", 
+}
+# --- FIN AJOUT ---
+
+
 # Configuration des chemins
 if getattr(sys, 'frozen', False):
     # Si l'application est packagée (PyInstaller)
@@ -246,14 +261,18 @@ async def make_api_request(
     system_prompts = {
         'Japonais': 'あなたは指定された条件に基づいて日本語の小説の章を書く作家です。指示に厳密に従ってください。',
         'Français': 'Vous êtes un écrivain qui rédige des chapitres de romans en fonction des conditions spécifiées. Suivez strictement les instructions.',
-        'hiragana': 'あなたは日本語の単語のひらがなの読みを提供するアシスタントです。返答にはひらがなのみを含めてください。説明は不要です。',
+        'hiragana': 'あなたは日本語の単語のひらがなの読みを提供するアシスタNTです。返答にはひらがなのみを含めてください。説明は不要です。',
         'roadmap': 'You are an assistant specializing in summarizing novel plots into a single, coherent narrative paragraph.',
         'default': 'You are a helpful assistant.' # Un prompt générique par défaut
     }
 
     system_prompt = system_prompts.get(system_prompt_key, system_prompts.get(language, system_prompts['default']))
-    # Utilise le modèle demandé, ou un modèle par défaut s'il n'est pas spécifié (Mistral free est un bon choix par défaut)
-    model_to_use = model_id or 'deepseek/deepseek-r1-0528:free'
+    
+    # --- MODIFIÉ : Utilisation de MODEL_CONFIG ---
+    # Utilise le modèle demandé, ou le modèle par défaut de la config s'il n'est pas spécifié
+    model_to_use = model_id or MODEL_CONFIG["default_generation"]
+    # --- FIN MODIFICATION ---
+    
     logging.info(f"Requête API (non-streaming) vers '{model_to_use}' avec system_prompt_key '{system_prompt_key}'")
 
     async with httpx.AsyncClient() as client:
@@ -354,7 +373,7 @@ async def stream_openai_response(payload: GenerateChapterPayload):
 
     # Logging initial de la demande de stream
     logging.info("===== NOUVELLE DEMANDE DE STREAM =====")
-    logging.info(f"Modèle demandé: {payload.model_id or 'default (sera mistral 7b free)'}")
+    logging.info(f"Modèle demandé: {payload.model_id or 'default'}")
     logging.info(f"Taille du prompt: {len(payload.prompt)} caractères")
     # Log tronqué pour éviter de spammer les logs si en mode DEBUG (mettre level=DEBUG pour voir)
     logging.debug(f"Prompt (tronqué): {payload.prompt[:500]}...")
@@ -366,8 +385,13 @@ async def stream_openai_response(payload: GenerateChapterPayload):
         'default': 'You are a writer who writes novel chapters based on provided context and instructions. Follow the instructions strictly.'
     }
     system_prompt = system_prompts.get(payload.language, system_prompts['default'])
+    
+    # --- MODIFIÉ : Utilisation de MODEL_CONFIG ---
     # Choix du modèle à utiliser
-    model_to_use = payload.model_id or 'deepseek/deepseek-r1-0528:free'
+    model_to_use = payload.model_id or MODEL_CONFIG["default_generation"]
+    # --- FIN MODIFICATION ---
+    
+    logging.info(f"Utilisation du modèle: {model_to_use}") # Log du modèle réellement utilisé
 
     async with httpx.AsyncClient() as client:
         # Essayer chaque clé API en boucle
@@ -486,13 +510,16 @@ async def get_translation(payload: TranslationPayload):
             "Ne fournis PAS d'explications, seulement les hiraganas. Si le mot contient déjà des hiraganas ou katakanas, renvoie le mot tel quel."
             "Si le mot est entièrement en alphabet latin, renvoie une chaîne vide."
         )
-        # Utiliser un modèle rapide et gratuit est suffisant ici
+        
+        # --- MODIFIÉ : Utilisation de MODEL_CONFIG ---
         reading_result = await make_api_request(
             prompt=hiragana_prompt,
-            model_id='deepseek/deepseek-r1-0528:free', # Ou un autre modèle rapide
+            model_id=MODEL_CONFIG["hiragana_reading"], # Utilise le modèle défini pour les hiragana
             language='Japonais', # Pour le prompt système
             system_prompt_key='hiragana' # Prompt système spécifique
         )
+        # --- FIN MODIFICATION ---
+        
         # Nettoyage simple de la réponse
         reading = reading_result.strip().replace('`', '').replace('*', '').replace("'", "").replace('"', '')
 
@@ -619,8 +646,11 @@ Et voici le contenu textuel intégral des **trois derniers chapitres** publiés.
 Ta tâche est de **mettre à jour** la fiche de route en intégrant les événements et informations des trois derniers chapitres. Le nouveau résumé doit remplacer l'ancien. Rédige-le dans un **style narratif naturel et fluide**, en continuant l'histoire. Assure-toi d'inclure les nouveaux personnages, les développements de l'intrigue, les changements de lieux et toute évolution significative. Le résultat doit être un **unique paragraphe, nouveau, complet et cohérent**, résumant toute l'histoire depuis le début jusqu'à la fin du dernier chapitre fourni. Ne commence PAS par un titre ou une introduction du type "Voici la mise à jour".'''
 
     try:
-        # Choisir le modèle : celui spécifié dans le payload, ou Haiku par défaut (bon pour résumer)
-        model_for_roadmap = payload.model_id or 'deepseek/deepseek-r1-0528:free'
+        # --- MODIFIÉ : Utilisation de MODEL_CONFIG ---
+        # Choisir le modèle : celui spécifié dans le payload, ou celui de la config par défaut
+        model_for_roadmap = payload.model_id or MODEL_CONFIG["roadmap_summary"]
+        # --- FIN MODIFICATION ---
+        
         logging.info(f"Utilisation du modèle '{model_for_roadmap}' pour la génération de la roadmap.")
 
         # Appel à la fonction qui gère l'appel API non-streamé et la rotation des clés
