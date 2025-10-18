@@ -8,6 +8,7 @@ scikit-learn
 msgpack-asgi
 gunicorn
 httpx
+deepl
 
 # --- PyTorch pour CPU seulement ---
 --extra-index-url https://download.pytorch.org/whl/cpu

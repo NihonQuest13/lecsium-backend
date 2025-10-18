@@ -319,3 +319,41 @@ OSError: [Errno 22] Invalid argument
 2025-10-17 20:38:29,353 - INFO - Données sauvegardées avec succès pour le roman 3c2c41eb-121d-4fc1-83bc-e314c220d503.
 2025-10-17 20:39:11,211 - INFO - Extinction de l'application... Nettoyage des modèles.
 2025-10-17 20:39:11,211 - INFO - Nettoyage terminé.
+2025-10-18 02:26:29,449 - INFO - Données pour le roman 1755705826009 supprimées avec succès.
+2025-10-18 02:26:29,456 - INFO - THREAD: Ajout d'un chapitre au roman : 1755705826009
+2025-10-18 02:26:29,462 - INFO - THREAD: Encodage du texte du chapitre...
+2025-10-18 02:26:29,499 - ERROR - Erreur inattendue dans /add_chapter: [Errno 22] Invalid argument
+Traceback (most recent call last):
+  File "C:\Users\Utilisateur\nihon_quest\backend\app\api\router.py", line 177, in add_chapter
+    }
+      
+  File "C:\Users\Utilisateur\AppData\Local\Programs\Python\Python311\Lib\site-packages\starlette\concurrency.py", line 38, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Utilisateur\AppData\Local\Programs\Python\Python311\Lib\site-packages\anyio\to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Utilisateur\AppData\Local\Programs\Python\Python311\Lib\site-packages\anyio\_backends\_asyncio.py", line 2470, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Utilisateur\AppData\Local\Programs\Python\Python311\Lib\site-packages\anyio\_backends\_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Utilisateur\nihon_quest\backend\app\api\router.py", line 162, in _add_chapter_sync
+    for i in range(len(OPENROUTER_API_KEYS)):
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Utilisateur\AppData\Local\Programs\Python\Python311\Lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Utilisateur\AppData\Local\Programs\Python\Python311\Lib\site-packages\sentence_transformers\SentenceTransformer.py", line 1018, in encode
+    for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Utilisateur\AppData\Local\Programs\Python\Python311\Lib\site-packages\tqdm\std.py", line 1524, in trange
+    return tqdm(range(*args), **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Utilisateur\AppData\Local\Programs\Python\Python311\Lib\site-packages\tqdm\std.py", line 1096, in __init__
+    self.sp = self.status_printer(self.fp)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Utilisateur\AppData\Local\Programs\Python\Python311\Lib\site-packages\tqdm\std.py", line 448, in status_printer
+    getattr(sys.stderr, 'flush', lambda: None)()
+OSError: [Errno 22] Invalid argument
