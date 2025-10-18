@@ -55,7 +55,7 @@ DIMENSION = 384
 # Configuration du logging
 log_file_path = BASE_DIR / "backend.log"
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.INFO, # --- MODIFICATION : S'assurer que le level est au moins INFO
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(log_file_path, encoding='utf-8'),
@@ -284,6 +284,14 @@ async def stream_openai_response(payload: GenerateChapterPayload):
     """Stream la réponse de l'API OpenRouter pour la génération de chapitres."""
     global CURRENT_API_KEY_INDEX
     
+    # --- AJOUT DE LOG ---
+    logging.info("===== NOUVELLE DEMANDE DE STREAM =====")
+    logging.info(f"Modèle demandé: {payload.model_id or 'default (mistral 7b free)'}")
+    logging.info(f"Taille du prompt: {len(payload.prompt)} caractères")
+    # Log tronqué pour éviter de spammer les logs si en mode DEBUG
+    logging.debug(f"Prompt (tronqué): {payload.prompt[:500]}...") 
+    # --- FIN DE L'AJOUT ---
+    
     system_prompts = {
         'Japonais': 'あなたは指定された条件に基づいて日本語の小説の章を書く作家です。指示に厳密に従ってください。',
         'Français': 'Vous êtes un écrivain qui rédige des chapitres de romans en fonction des conditions spécifiées. Suivez strictement les instructions.',
@@ -323,30 +331,58 @@ async def stream_openai_response(payload: GenerateChapterPayload):
                 ) as response:
                     if response.status_code >= 400:
                         error_body = await response.aread()
-                        logging.error(f"Erreur API ({response.status_code}) avec clé {CURRENT_API_KEY_INDEX}: {error_body.decode()}")
+                        # --- MODIFICATION DE LOG ---
+                        logging.error(f"ERREUR STREAM API (Clé {CURRENT_API_KEY_INDEX}, Status {response.status_code}): {error_body.decode()}")
+                        # --- FIN MODIFICATION ---
                         
                         if response.status_code in [429, 402]:
+                            # Erreur de crédit ou de rate limit, on essaie la clé suivante
                             CURRENT_API_KEY_INDEX = (CURRENT_API_KEY_INDEX + 1) % len(OPENROUTER_API_KEYS)
                             logging.info(f"Basculement vers la clé API {CURRENT_API_KEY_INDEX}")
                             continue
                         else:
+                            # Erreur non gérable (ex: 400 Bad Request, 422 Unprocessable),
+                            # le prompt est probablement mauvais. Inutile d'essayer d'autres clés.
+                            logging.error(f"Erreur non récupérable (Status {response.status_code}), on arrête le cycle des clés.")
                             raise httpx.HTTPStatusError(
-                                f"Erreur {response.status_code}",
+                                f"Erreur {response.status_code}: {error_body.decode()}",
                                 request=response.request,
                                 response=response
                             )
                     
+                    # --- AJOUT DE LOG ---
+                    logging.info(f"Stream connecté avec succès (Clé {CURRENT_API_KEY_INDEX}). Début du streaming...")
+                    # --- FIN DE L'AJOUT ---
+                    
                     async for chunk in response.aiter_bytes():
                         yield chunk
-                    return
                     
-            except httpx.HTTPStatusError:
+                    # --- AJOUT DE LOG ---
+                    logging.info("Stream terminé avec succès.")
+                    # --- FIN DE L'AJOUT ---
+                    return # Important: on sort après un succès
+                    
+            except httpx.HTTPStatusError as e:
+                # --- MODIFICATION DE LOG ---
+                logging.error(f"HTTPStatusError (Clé {CURRENT_API_KEY_INDEX}): {e}")
+                # --- FIN MODIFICATION ---
                 if i == len(OPENROUTER_API_KEYS) - 1:
+                    logging.error("Toutes les clés ont échoué (HTTPStatusError).")
                     raise
             except Exception as e:
-                logging.error(f"Erreur inattendue avec clé {CURRENT_API_KEY_INDEX}: {e}")
+                # --- MODIFICATION DE LOG ---
+                logging.error(f"Erreur inattendue (Clé {CURRENT_API_KEY_INDEX}): {e}", exc_info=True)
+                # --- FIN MODIFICATION ---
                 if i == len(OPENROUTER_API_KEYS) - 1:
+                    logging.error("Toutes les clés ont échoué (Exception).")
                     raise
+        
+        # --- AJOUT DE GESTION DE FIN DE BOUCLE ---
+        # Si on arrive ici, la boucle s'est terminée sans 'return', donc toutes les clés ont échoué
+        logging.error("Toutes les clés API ont échoué (boucle terminée). Le stream sera vide.")
+        # On lève une exception pour que l'endpoint principal le sache
+        raise HTTPException(status_code=503, detail="Toutes les clés API ont échoué (ex: rate limit ou crédits épuisés).")
+        # --- FIN DE L'AJOUT ---
 
 # ============================================================================
 # ENDPOINTS - TRADUCTION
@@ -427,9 +463,17 @@ async def generate_chapter_stream(payload: GenerateChapterPayload):
             stream_openai_response(payload),
             media_type="text/event-stream"
         )
+    # --- MODIFICATION ---
+    except HTTPException as e:
+        # Transférer l'erreur HTTPException levée par stream_openai_response
+        logging.error(f"HTTPException dans generate_chapter_stream: {e.detail}")
+        # On renvoie le détail au client pour qu'il sache ce qui se passe
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         logging.error(f"Erreur critique lors du stream: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Erreur interne communication IA.")
+        # On s'assure de renvoyer une erreur HTTP claire
+        raise HTTPException(status_code=500, detail=f"Erreur interne communication IA: {str(e)}")
+    # --- FIN MODIFICATION ---
 
 @router.post("/update_roadmap")
 async def update_roadmap(payload: RoadmapPayload):
