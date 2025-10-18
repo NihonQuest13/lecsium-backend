@@ -226,7 +226,7 @@ async def make_api_request(
     }
     
     system_prompt = system_prompts.get(system_prompt_key, system_prompts['default'])
-    model_to_use = model_id or 'tngtech/deepseek-r1t2-chimera:free'
+    model_to_use = model_id or 'google/gemini-2.0-flash-exp:free'
     
     async with httpx.AsyncClient() as client:
         for i in range(len(OPENROUTER_API_KEYS)):
@@ -299,7 +299,7 @@ async def stream_openai_response(payload: GenerateChapterPayload):
     }
     
     system_prompt = system_prompts.get(payload.language, system_prompts['default'])
-    model_to_use = payload.model_id or 'tngtech/deepseek-r1t2-chimera:free'
+    model_to_use = payload.model_id or 'google/gemini-2.0-flash-exp:free'
     
     async with httpx.AsyncClient() as client:
         for i in range(len(OPENROUTER_API_KEYS)):
@@ -407,7 +407,7 @@ async def get_translation(payload: TranslationPayload):
         )
         reading_result = await make_api_request(
             prompt=hiragana_prompt,
-            model_id='tngtech/deepseek-r1t2-chimera:free',
+            model_id='google/gemini-2.0-flash-exp:free',
             language='Japonais',
             system_prompt_key='hiragana'
         )
