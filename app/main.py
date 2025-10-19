@@ -12,21 +12,25 @@ app = FastAPI(lifespan=lifespan)
 
 # Configuration du middleware CORS
 origins = [
-    # Mettez ici vos domaines de production
+    # Mettez ici vos domaines de production (HTTPS)
     "https://nihonquest.pages.dev",
     "https://www.nihonquest.pages.dev",
     "https://nihon-quest-api.onrender.com",
     
+    # --- MODIFICATION ---
+    # Ajout des versions HTTP (non-sécurisées) pour la production.
+    # C'est la cause probable de votre erreur 400.
+    "http://nihonquest.pages.dev",
+    "http://www.nihonquest.pages.dev",
+    # --- FIN MODIFICATION ---
+
     # Adresses pour le développement local
     "http://localhost",
     "http://localhost:8080",
     
-    # --- MODIFICATION ---
-    # Ajout de votre port de dev local spécifique (vu dans l'erreur)
-    "http://localhost:62215",
-    # --- FIN MODIFICATION ---
-    
+    # Wildcards pour les "preview URLs" de Cloudflare (en HTTPS et HTTP)
     "https://*.pages.dev",
+    "http://*.pages.dev",
 ]
 
 app.add_middleware(
