@@ -1,43 +1,60 @@
+# backend/main.py
 from fastapi import FastAPI
-from app.api.router import router as api_router
-from app.core.lifespan import lifespan
 from fastapi.middleware.cors import CORSMiddleware
+# contextlib n'est plus nécessaire ici
 import logging
-import re
 
-# Configuration du logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Import de votre router
+from app.api.router import router
 
-app = FastAPI(lifespan=lifespan)
+# ✅ CORRECTION: On importe le 'lifespan' directement depuis votre fichier,
+# ainsi que ml_models (au cas où le router en aurait besoin)
+from app.core.lifespan import lifespan, ml_models
 
-# ✅ CORRECTION CORS : Utiliser allow_origin_regex au lieu de wildcards
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=r"https://.*\.pages\.dev",  # ✅ Accepte tous les sous-domaines .pages.dev
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+# Configuration du logging (style du nouveau code)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# ✅ ALTERNATIVE : Si le regex ne marche pas, utiliser "*" (accepte tout)
-# C'est moins sécurisé mais garantit que ça fonctionne
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=False,  # ⚠️ Doit être False si allow_origins=["*"]
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+# ❌ L'ancienne définition locale de lifespan est supprimée,
+# car elle est maintenant importée de app.core.lifespan
 
-app.include_router(api_router)
+# Création de l'application FastAPI (style du nouveau code)
+app = FastAPI(
+    title="Nihon Quest API",
+    description="API Backend pour la génération de romans avec IA",
+    version="1.0.0",
+    lifespan=lifespan  # ✅ On utilise le 'lifespan' importé
+)
 
-@app.get("/ping")
-async def ping():
-    """
-    Un endpoint simple pour vérifier que le serveur est en ligne.
-    """
-    logger.info("Ping endpoint was called")
-    return {"message": "pong"}
+# ✅ CONFIGURATION CORS CRITIQUE (style du nouveau code)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:*",  # Pour le développement local
+        "http://127.0.0.1:*",  # Pour le développement local
+        "https://*.pages.dev",  # Pour Cloudflare Pages (tous les sous-domaines)
+        "https://nihon-quest.pages.dev",  # Votre domaine Cloudflare (si vous le connaissez)
+        "*"  # ⚠️ TEMPORAIRE : Autorise tout (à restreindre en production)
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],  # Autorise toutes les méthodes (GET, POST, etc.)
+    allow_headers=["*"],  # Autorise tous les headers
+    expose_headers=["*"],  # Expose tous les headers
+)
 
-logger.info("Application startup complete.")
+# Inclusion du router principal
+app.include_router(router)
+
+# Endpoint racine (remplace l'ancien /ping)
+@app.get("/")
+def read_root():
+    return {
+        "status": "Nihon Quest Backend Online",
+        "version": "1.0.0",
+        "message": "API fonctionnelle avec CORS activé"
+    }
+
+# Pour lancer le serveur en local :
+# uvicorn main:app --host 0.0.0.0 --port 8000 --reload
