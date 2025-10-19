@@ -12,17 +12,18 @@ app = FastAPI(lifespan=lifespan)
 
 # Configuration du middleware CORS
 origins = [
+    # --- AJOUT DE VOTRE URL SPECIFIQUE ---
+    "https://nihon-quest-frontend.pages.dev", 
+    # --- FIN DE L'AJOUT ---
+
     # Mettez ici vos domaines de production (HTTPS)
     "https://nihonquest.pages.dev",
     "https://www.nihonquest.pages.dev",
     "https://nihon-quest-api.onrender.com",
     
-    # --- MODIFICATION ---
-    # Ajout des versions HTTP (non-sécurisées) pour la production.
-    # C'est la cause probable de votre erreur 400.
+    # Versions HTTP (non-sécurisées) pour la production.
     "http://nihonquest.pages.dev",
     "http://www.nihonquest.pages.dev",
-    # --- FIN MODIFICATION ---
 
     # Adresses pour le développement local
     "http://localhost",
