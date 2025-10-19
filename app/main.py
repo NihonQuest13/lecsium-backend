@@ -11,20 +11,21 @@ logger = logging.getLogger(__name__)
 app = FastAPI(lifespan=lifespan)
 
 # Configuration du middleware CORS
-# MODIFIÉ : Remplacement de "*" par une liste d'origines explicites.
-# C'est plus sécurisé et essentiel pour que Cloudflare et Render
-# communiquent correctement en production.
 origins = [
     # Mettez ici vos domaines de production
-    "https://nihonquest.pages.dev",            # Votre URL Cloudflare
-    "https://www.nihonquest.pages.dev",       # Avec www
-    "https://nihon-quest-api.onrender.com",  # Votre URL Render
+    "https://nihonquest.pages.dev",
+    "https://www.nihonquest.pages.dev",
+    "https://nihon-quest-api.onrender.com",
     
     # Adresses pour le développement local
     "http://localhost",
-    "http://localhost:8080", # Port Flutter web local par défaut
+    "http://localhost:8080",
     
-    # Vous pouvez aussi autoriser les URL de preview de Cloudflare Pages
+    # --- MODIFICATION ---
+    # Ajout de votre port de dev local spécifique (vu dans l'erreur)
+    "http://localhost:62215",
+    # --- FIN MODIFICATION ---
+    
     "https://*.pages.dev",
 ]
 
