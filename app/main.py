@@ -3,6 +3,7 @@ from app.api.router import router as api_router
 from app.core.lifespan import lifespan
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import re
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -10,37 +11,24 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(lifespan=lifespan)
 
-# Configuration du middleware CORS
-origins = [
-    # --- AJOUT DE VOTRE URL SPECIFIQUE ---
-    "https://nihon-quest-frontend.pages.dev", 
-    # --- FIN DE L'AJOUT ---
-
-    # Mettez ici vos domaines de production (HTTPS)
-    "https://nihonquest.pages.dev",
-    "https://www.nihonquest.pages.dev",
-    "https://nihon-quest-api.onrender.com",
-    
-    # Versions HTTP (non-sécurisées) pour la production.
-    "http://nihonquest.pages.dev",
-    "http://www.nihonquest.pages.dev",
-
-    # Adresses pour le développement local
-    "http://localhost",
-    "http://localhost:8080",
-    
-    # Wildcards pour les "preview URLs" de Cloudflare (en HTTPS et HTTP)
-    "https://*.pages.dev",
-    "http://*.pages.dev",
-]
-
+# ✅ CORRECTION CORS : Utiliser allow_origin_regex au lieu de wildcards
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,       # Utilise la liste définie ci-dessus
+    allow_origin_regex=r"https://.*\.pages\.dev",  # ✅ Accepte tous les sous-domaines .pages.dev
     allow_credentials=True,
-    allow_methods=["*"],         # Autorise toutes les méthodes
-    allow_headers=["*"],         # Autorise tous les en-têtes
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+# ✅ ALTERNATIVE : Si le regex ne marche pas, utiliser "*" (accepte tout)
+# C'est moins sécurisé mais garantit que ça fonctionne
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=False,  # ⚠️ Doit être False si allow_origins=["*"]
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 app.include_router(api_router)
 
