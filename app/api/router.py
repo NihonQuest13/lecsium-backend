@@ -160,6 +160,7 @@ def load_chapters_db(novel_id: str) -> dict:
 def save_chapters_db(novel_id: str, db: dict):
     """Sauvegarde la base de données des chapitres dans un JSON."""
     db_path = get_chapters_db_path(novel_id)
+    # --- CETTE LIGNE EST CRUCIALE ---
     get_novel_storage_path(novel_id).mkdir(exist_ok=True)
     try:
         with open(db_path, 'w', encoding='utf-8') as f:
@@ -413,6 +414,13 @@ async def index_chapter(request: IndexRequest):
         index_path = get_faiss_index_path(request.novel_id)
         db_path = get_chapters_db_path(request.novel_id)
         
+        # --- ⬇️ DÉBUT DE LA CORRECTION ERREUR 500 ⬇️ ---
+        # On s'assure que le dossier de stockage du roman existe AVANT
+        # de tenter d'écrire le fichier d'index Faiss.
+        novel_storage_path = get_novel_storage_path(request.novel_id)
+        novel_storage_path.mkdir(exist_ok=True)
+        # --- ⬆️ FIN DE LA CORRECTION ERREUR 500 ⬆️ ---
+
         with get_index_lock(request.novel_id):
             chapters_db = load_chapters_db(request.novel_id)
             
@@ -490,11 +498,14 @@ async def index_chapter(request: IndexRequest):
                      raise HTTPException(status_code=500, detail=f"Erreur critique de l'index Faiss: {e_retry}")
 
             # Sauvegarder l'index et la DB
-            faiss.write_index(index, str(index_path))
+            # Le dossier est maintenant garanti d'exister grâce à la correction ci-dessus
+            faiss.write_index(index, str(index_path)) 
+            
             chapters_db[request.chapter_id] = {
                 'vector_id': int(new_vector_id), # Stocker en tant qu'int natif dans le JSON
                 'content': request.content # Stocker le contenu pour la récupération
             }
+            # save_chapters_db crée aussi le dossier, mais c'est ok de l'appeler à nouveau
             save_chapters_db(request.novel_id, chapters_db)
 
             logging.info(f"Chapitre {request.chapter_id} indexé avec succès pour {request.novel_id} (Vector ID: {new_vector_id}).")
