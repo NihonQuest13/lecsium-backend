@@ -230,6 +230,59 @@ async def _stream_generator(prompt: str, model_id: str, language: str):
 
 # --- DÉBUT DE LA MODIFICATION HEARTBEAT ---
 
+# ===========================================================================
+# ENDPOINTS - GÉNÉRATION (Simple Completion/Planification)
+# ===========================================================================
+
+@router.post("/generate_completion")
+async def generate_completion_from_prompt(request: GenerationRequest):
+    """
+    Endpoint pour générer une réponse non-streaming (utile pour la planification/résumé).
+    """
+    if not OPENROUTER_API_KEYS:
+        raise HTTPException(status_code=503, detail="Le service de génération n'est pas configuré (clés manquantes).")
+    
+    api_key = get_next_api_key()
+    logging.info(f"Début de la complétion simple pour le modèle : {request.model_id} (langue: {request.language})")
+
+    try:
+        response = await client.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": request.model_id,
+                "messages": [{"role": "user", "content": request.prompt}],
+                "stream": False,  # Non-streaming
+            },
+        )
+        
+        # Lève une HTTPException si le code est >= 400
+        response.raise_for_status() 
+
+        # Le corps de la réponse est un JSON standard de l'API OpenRouter
+        data = response.json()
+        
+        # Extrait le contenu de la première réponse
+        message = data['choices'][0]['message']
+        content = message['content'] if message and 'content' in message else ""
+
+        if not content:
+            raise HTTPException(status_code=500, detail="L'IA n'a retourné aucun contenu.")
+            
+        logging.info(f"Complétion simple terminée pour {request.model_id}.")
+        return {"content": content}
+        
+    except httpx.HTTPStatusError as e:
+        error_detail = f"Erreur de l'API OpenRouter ({e.response.status_code}): {e.response.text}"
+        logging.error(error_detail)
+        raise HTTPException(status_code=e.response.status_code, detail=error_detail)
+    except Exception as e:
+        logging.error(f"Erreur inattendue lors de la complétion simple: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erreur interne du backend: {e}")
+
 async def _stream_generator_with_heartbeat(stream_generator):
     """
     Wrapper qui ajoute un 'heartbeat' (ping) à un générateur de stream
