@@ -407,8 +407,18 @@ async def index_chapter(request: IndexRequest):
     try:
         model = get_sentence_transformer()
         
-        # Utiliser run_in_threadpool pour l'encodage (calcul intensif)
-        embedding = await run_in_threadpool(model.encode, [request.content])
+        # --- ⬇️ DÉBUT DE LA CORRECTION ERRENO 22 ⬇️ ---
+        # Nous créons une fonction lambda pour appeler 'model.encode'
+        # en passant le paramètre 'show_progress_bar=False'.
+        # Cela empêche l'erreur 'OSError: [Errno 22]' de tqdm.
+        encode_task = lambda: model.encode(
+            [request.content], 
+            show_progress_bar=False
+        )
+        
+        embedding = await run_in_threadpool(encode_task)
+        # --- ⬆️ FIN DE LA CORRECTION ERRENO 22 ⬆️ ---
+        
         embedding = np.array(embedding, dtype=np.float32)
         
         index_path = get_faiss_index_path(request.novel_id)
@@ -531,7 +541,16 @@ async def get_context(request: ContextRequest):
         model = get_sentence_transformer()
         
         # Encoder la requête
-        query_embedding = await run_in_threadpool(model.encode, [request.query])
+        
+        # --- ⬇️ DÉBUT DE LA CORRECTION ERRENO 22 (POUR /get_context) ⬇️ ---
+        # On applique la même correction ici au cas où
+        encode_task = lambda: model.encode(
+            [request.query], 
+            show_progress_bar=False
+        )
+        query_embedding = await run_in_threadpool(encode_task)
+        # --- ⬆️ FIN DE LA CORRECTION ERRENO 22 ⬆️ ---
+        
         query_embedding = np.array(query_embedding, dtype=np.float32)
 
         with get_index_lock(request.novel_id):
