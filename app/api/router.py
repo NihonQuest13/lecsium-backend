@@ -397,7 +397,7 @@ async def index_chapter(request: IndexRequest):
                 try:
                     selector = faiss.IDSelectorBatch(np.array(ids_to_remove, dtype=np.int64))
                     index.remove_ids(selector)
-                except RuntimeError as e:
+                except (RuntimeError, ValueError) as e:
                      logging.error(f"Erreur lors de la suppression du vecteur {ids_to_remove} de l'index {request.novel_id}: {e}")
             try: new_vector_id = int(request.chapter_id)
             except ValueError: new_vector_id = hash(request.chapter_id)
@@ -479,7 +479,7 @@ async def delete_chapter_from_index(request: DeleteChapterRequest):
                 index.remove_ids(selector)
                 faiss.write_index(index, str(index_path))
                 return {"status": "deleted", "novel_id": request.novel_id, "chapter_id": request.chapter_id}
-            except RuntimeError as e:
+            except (RuntimeError, ValueError) as e:
                 logging.error(f"Erreur lors de la suppression du vecteur {vector_id_to_remove} de l'index {request.novel_id}: {e}")
                 raise HTTPException(status_code=500, detail=f"Erreur Faiss lors de la suppression: {e}")
     return {"status": "deleted_from_db_only", "novel_id": request.novel_id, "chapter_id": request.chapter_id}

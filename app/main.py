@@ -37,7 +37,7 @@ app.add_middleware(
         "https://nihon-quest.pages.dev",  # Domaine spécifique
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],  # Méthodes nécessaires uniquement
+    allow_methods=["GET", "POST", "OPTIONS"],  # Inclut OPTIONS pour preflight
     allow_headers=["*"],  # Headers standards
     expose_headers=[],  # Aucun header exposé
 )
