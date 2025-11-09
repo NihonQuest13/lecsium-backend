@@ -35,6 +35,7 @@ app.add_middleware(
         "http://localhost:3000",  # Développement local
         "http://127.0.0.1:3000",  # Développement local
         "https://nihon-quest.pages.dev",  # Domaine spécifique
+        "https://nihon-quest-frontend.pages.dev",  # Frontend Cloudflare Pages
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],  # Inclut OPTIONS pour preflight
