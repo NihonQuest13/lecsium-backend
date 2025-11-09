@@ -28,20 +28,18 @@ app = FastAPI(
     lifespan=lifespan  # ✅ On utilise le 'lifespan' importé
 )
 
-# ✅ CONFIGURATION CORS CRITIQUE (style du nouveau code)
+# ✅ CONFIGURATION CORS SÉCURISÉE (optimisée pour légèreté)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:*",  # Pour le développement local
-        "http://127.0.0.1:*",  # Pour le développement local
-        "https://*.pages.dev",  # Pour Cloudflare Pages (tous les sous-domaines)
-        "https://nihon-quest.pages.dev",  # Votre domaine Cloudflare (si vous le connaissez)
-        "*"  # ⚠️ TEMPORAIRE : Autorise tout (à restreindre en production)
+        "http://localhost:3000",  # Développement local
+        "http://127.0.0.1:3000",  # Développement local
+        "https://nihon-quest.pages.dev",  # Domaine spécifique
     ],
     allow_credentials=True,
-    allow_methods=["*"],  # Autorise toutes les méthodes (GET, POST, etc.)
-    allow_headers=["*"],  # Autorise tous les headers
-    expose_headers=["*"],  # Expose tous les headers
+    allow_methods=["GET", "POST"],  # Méthodes nécessaires uniquement
+    allow_headers=["*"],  # Headers standards
+    expose_headers=[],  # Aucun header exposé
 )
 
 # Inclusion du router principal

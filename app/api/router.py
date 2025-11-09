@@ -23,10 +23,10 @@ import asyncio
 
 # Correction pour l'import relatif si nécessaire
 try:
-    from ..core.lifespan import ml_models
+    from ..core.lifespan import ml_models, load_model
 except ImportError:
      sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-     from app.core.lifespan import ml_models
+     from app.core.lifespan import ml_models, load_model
 
 
 # ===========================================================================
@@ -80,14 +80,10 @@ key_index = 0
 key_lock = Lock()
 
 def get_next_api_key():
-    """Récupère la prochaine clé API de manière thread-safe."""
-    global key_index
+    """Récupère la première clé API (pas de rotation)."""
     if not OPENROUTER_API_KEYS:
         raise ValueError("Aucune clé API OpenRouter n'est disponible.")
-    with key_lock:
-        key = OPENROUTER_API_KEYS[key_index]
-        key_index = (key_index + 1) % len(OPENROUTER_API_KEYS)
-        return key
+    return OPENROUTER_API_KEYS[0]
 
 router = APIRouter()
 logging.info("Routeur API initialisé.")
@@ -149,11 +145,15 @@ def get_chapters_db_path(novel_id: str) -> Path:
     return get_novel_storage_path(novel_id) / "chapters.json"
 
 def get_sentence_transformer() -> SentenceTransformer:
-    """Récupère le modèle de transformation de phrases depuis le cache global."""
+    """Récupère le modèle de transformation de phrases depuis le cache global (lazy loading)."""
     model = ml_models.get("sentence_transformer")
     if model is None:
-        logging.critical("Le modèle de transformation de phrases n'est pas chargé !")
-        raise HTTPException(status_code=500, detail="Le service de contexte n'est pas initialisé.")
+        logging.info("Modèle non chargé, déclenchement du chargement paresseux.")
+        load_model()  # Chargement paresseux
+        model = ml_models.get("sentence_transformer")
+        if model is None:
+            logging.critical("Le modèle de transformation de phrases n'est pas chargé après lazy loading !")
+            raise HTTPException(status_code=500, detail="Le service de contexte n'est pas initialisé.")
     return model
 
 def load_chapters_db(novel_id: str) -> dict:
@@ -507,3 +507,4 @@ async def health_check():
 def read_root():
     """Endpoint racine."""
     return {"status": "Nihon Quest Backend Fonctionnel", "version": "1.3"}
+    

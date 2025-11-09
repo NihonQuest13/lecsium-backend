@@ -3,9 +3,6 @@ uvicorn
 sentence-transformers
 faiss-cpu
 numpy
-nuitka
-scikit-learn
-msgpack-asgi
 gunicorn
 httpx
 deepl
