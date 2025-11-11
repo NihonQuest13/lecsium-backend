@@ -231,6 +231,19 @@ Basé sur `app/db/models.py` :
 - ORM: SQLAlchemy
 - Migrations: Alembic
 
+## 13. Nettoyage des Référentiels Git
+### Référentiel Principal (lecsium-backend)
+- **URL :** https://github.com/NihonQuest13/lecsium-backend
+- **Branches actives :** main (locale et distante)
+- **Branches supprimées :** blackboxai/update-frontend
+
+### Sous-module Frontend (nihon-quest)
+- **URL :** https://github.com/NihonQuest13/nihon-quest-frontend
+- **Branches actives :** main (locale et distante)
+- **Branches supprimées :** master (branche distante)
+
+**Optimisations réalisées :** Suppression des branches inutiles et redondantes pour maintenir un historique propre
+
 ---
 
 ## Notes Techniques
@@ -241,13 +254,13 @@ Basé sur `app/db/models.py` :
 - Cloud Run pour déploiement serverless
 - PostgreSQL pour données relationnelles
 
-## Résumé des Optimisations GCP
+## Résumé des Optimisations GCP et Maintenance
 - **Économies totales estimées :** ~70-100$/mois
   - Désactivation APIs inutiles : ~20-30$/mois
   - Consolidation DBs : ~50-70$/mois
 - **Sécurité renforcée :** UBLA activé, secrets dans Secret Manager, versions épinglées
 - **Performance :** Backend unifié, dépendances stables
-- **Maintenance :** Architecture simplifiée, monitoring activé
+- **Maintenance :** Architecture simplifiée, monitoring activé, référentiels Git nettoyés
 
 ---
 
