@@ -28,14 +28,14 @@ from sqlalchemy.orm import Session
 try:
     from ..core.lifespan import ml_models, load_model
     from ..db.connection import get_db
-    from ..db.models import User, Novel, Chapter, Friendship
-    from ..auth.middleware import get_current_user_uid, get_current_user_email
+    from ..db.models import User, Novel, Chapter, Friendship, novel_collaborators
+    from ..auth.middleware import get_current_user_uid, get_current_user_email, verify_firebase_token
 except ImportError:
      sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
      from app.core.lifespan import ml_models, load_model
      from app.db.connection import get_db
-     from app.db.models import User, Novel, Chapter, Friendship
-     from app.auth.middleware import get_current_user_uid, get_current_user_email
+     from app.db.models import User, Novel, Chapter, Friendship, novel_collaborators
+     from app.auth.middleware import get_current_user_uid, get_current_user_email, verify_firebase_token
 
 
 # ===========================================================================
@@ -60,7 +60,7 @@ client = httpx.AsyncClient(timeout=300.0)
 # Pour le développement local, on utilise un mock ou on désactive GCS
 try:
     storage_client = storage.Client()
-    BUCKET_NAME = os.environ.get('STORAGE_PATH', 'supabase-exports-lecsium')
+    BUCKET_NAME = os.environ.get('STORAGE_PATH', 'exports-lecsium')
 except Exception as e:
     logging.warning(f"GCS non disponible en local: {e}. Utilisation du stockage local.")
     storage_client = None
@@ -173,6 +173,7 @@ def get_chapters_blob_path(novel_id: str) -> str:
 
 def load_chapters_db(novel_id: str) -> dict:
     """Charge la base de données des chapitres (JSON) depuis GCS."""
+    assert storage_client is not None, "GCS storage not available"
     try:
         bucket = storage_client.bucket(BUCKET_NAME)
         blob = bucket.blob(get_chapters_blob_path(novel_id))
@@ -195,6 +196,7 @@ def load_chapters_db(novel_id: str) -> dict:
 
 def save_chapters_db(novel_id: str, db: dict):
     """Sauvegarde la base de données des chapitres (JSON) vers GCS."""
+    assert storage_client is not None, "GCS storage not available"
     try:
         bucket = storage_client.bucket(BUCKET_NAME)
         blob = bucket.blob(get_chapters_blob_path(novel_id))
@@ -405,6 +407,8 @@ async def index_chapter(request: IndexRequest):
     if not request.content.strip():
         logging.warning(f"Tentative d'indexation de contenu vide pour {request.novel_id}/{request.chapter_id}. Suppression de l'index...")
         return await delete_chapter_from_index(DeleteChapterRequest(novel_id=request.novel_id, chapter_id=request.chapter_id))
+    if storage_client is None:
+        raise HTTPException(status_code=503, detail="GCS storage not available")
     try:
         model = get_sentence_transformer()
         encode_task = lambda: model.encode([request.content])
@@ -432,8 +436,7 @@ async def index_chapter(request: IndexRequest):
             ids_to_remove = [vector_id_to_find] if vector_id_to_find != -1 else []
             if ids_to_remove:
                 try:
-                    selector = faiss.IDSelectorBatch(np.array(ids_to_remove, dtype=np.int64))
-                    index.remove_ids(selector)
+                    index.remove_ids(np.array(ids_to_remove, dtype=np.int64))
                 except (RuntimeError, ValueError) as e:
                      logging.error(f"Erreur lors de la suppression du vecteur {ids_to_remove} de l'index {request.novel_id}: {e}")
             try: new_vector_id = int(request.chapter_id)
@@ -527,7 +530,7 @@ async def get_context(request: ContextRequest):
                     index_blob.download_to_filename(tmp_index.name)
                     index = faiss.read_index(tmp_index.name)
                 chapters_db = load_chapters_db(request.novel_id)
-                if not chapters_db: return {"novel_id": request.novel_id, "similar_chapters_content": []}
+                if len(chapters_db) == 0: return {"novel_id": request.novel_id, "similar_chapters_content": []}
                 vector_id_to_chapter_id = {v['vector_id']: k for k, v in chapters_db.items()}
                 k = min(request.top_k, index.ntotal)
                 if k == 0: return {"novel_id": request.novel_id, "similar_chapters_content": []}
@@ -545,6 +548,8 @@ async def get_context(request: ContextRequest):
 @router.post("/delete_novel_storage")
 async def delete_novel_storage(request: DeleteRequest):
     """Supprime l'intégralité du stockage GCS pour un roman."""
+    if storage_client is None:
+        raise HTTPException(status_code=503, detail="GCS storage not available")
     try:
         bucket = storage_client.bucket(BUCKET_NAME)
         # Lister tous les "fichiers" dans le "dossier" du roman
@@ -567,6 +572,8 @@ async def delete_novel_storage(request: DeleteRequest):
 @router.post("/delete_chapter_from_index")
 async def delete_chapter_from_index(request: DeleteChapterRequest):
     """Supprime un chapitre spécifique de l'index et de la DB."""
+    if storage_client is None:
+        raise HTTPException(status_code=503, detail="GCS storage not available")
     bucket = storage_client.bucket(BUCKET_NAME)
     index_blob_path = get_faiss_blob_path(request.novel_id)
     index_blob = bucket.blob(index_blob_path)
@@ -584,8 +591,7 @@ async def delete_chapter_from_index(request: DeleteChapterRequest):
                 with tempfile.NamedTemporaryFile() as tmp_index:
                     index_blob.download_to_filename(tmp_index.name)
                     index = faiss.read_index(tmp_index.name)
-                selector = faiss.IDSelectorBatch(np.array([vector_id_to_remove], dtype=np.int64))
-                index.remove_ids(selector)
+                index.remove_ids(np.array([vector_id_to_remove], dtype=np.int64))
                 # Sauvegarder le nouvel index dans un fichier temporaire
                 with tempfile.NamedTemporaryFile(delete=False) as tmp_index_out:
                     faiss.write_index(index, tmp_index_out.name)
@@ -970,7 +976,7 @@ async def accept_friend_request(
     if not friendship:
         raise HTTPException(status_code=404, detail="Demande d'ami non trouvée")
 
-    friendship.status = 'accepted'
+    friendship.status = 'accepted'  # type: ignore
     db.commit()
 
     return {"message": "Demande d'ami acceptée"}

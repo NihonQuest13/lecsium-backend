@@ -3,14 +3,22 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
 import os
 import logging
+from typing import Generator
 
 logger = logging.getLogger(__name__)
 
 # Database configuration
-DATABASE_URL = os.environ.get('DATABASE_URL')
-if not DATABASE_URL:
-    # Fallback for local development - adjust as needed
-    DATABASE_URL = "postgresql://user:password@localhost/nihon_quest"
+DB_USER = os.environ.get('DB_USER')
+DB_PASS = os.environ.get('DB_PASS')
+DB_NAME = os.environ.get('DB_NAME')
+DB_HOST = os.environ.get('DB_HOST')  # This is the path '/cloudsql/...'
+
+if DB_HOST:
+    # Configuration for Google Cloud SQL (via Cloud Run)
+    DATABASE_URL = f"postgresql+pg8000://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
+else:
+    # Fallback for local development
+    DATABASE_URL = os.environ.get('DATABASE_URL', "postgresql://user:password@localhost/nihon_quest")
 
 # Create engine with connection pooling disabled for Cloud SQL
 engine = create_engine(
@@ -22,7 +30,7 @@ engine = create_engine(
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-def get_db() -> Session:
+def get_db() -> Generator[Session, None, None]:
     """Dependency to get database session."""
     db = SessionLocal()
     try:
