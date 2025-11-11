@@ -74,8 +74,8 @@ FIREBASE_CONFIG=your_config
 
 ## Déploiement
 
-### Backend (Render.com)
-- Configuration dans `render.yaml`
+### Backend (Google Cloud Run)
+- Configuration dans `Dockerfile`
 - Déploiement automatique via Git
 - Base de données Cloud SQL PostgreSQL
 
