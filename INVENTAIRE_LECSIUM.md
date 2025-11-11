@@ -244,6 +244,17 @@ Basé sur `app/db/models.py` :
 
 **Optimisations réalisées :** Suppression des branches inutiles et redondantes pour maintenir un historique propre
 
+## 14. Nettoyage du Dossier Local
+### Fichiers Temporaires Supprimés
+- **Logs :** backend.log
+- **Bases de données temporaires :** nihon_quest.db, test.db
+- **Fichiers de build :** backend_service.spec, build.bat
+- **Sauvegardes SQL :** lecsium_backup_clean.sql, lecsium_public_only.sql
+- **Cache Python :** __pycache__/ (dossiers et fichiers .pyc)
+- **Fichiers temporaires :** temp_output.txt
+
+**Optimisations réalisées :** Suppression des fichiers inutiles pour maintenir un répertoire de travail propre et réduire l'espace disque occupé
+
 ---
 
 ## Notes Techniques
