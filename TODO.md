@@ -21,3 +21,4 @@
 - [x] Activer UBLA sur buckets GCS - FAIT pour 3 buckets
 - [x] Configurer monitoring et alertes - PARTIELLEMENT: Dashboard non créé, alertes non configurées (tentatives échouées)
 - [x] Mettre à jour inventaire avec modifications - FAIT: Inventaire mis à jour avec optimisations
+- [x] Nettoyer le dépôt Git - FAIT: Branches inutiles supprimées, conflits résolus, commits poussés
