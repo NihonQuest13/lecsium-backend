@@ -33,7 +33,7 @@ jobs:
 
       # 3. Build your Dockerfile with Cloud Build
       - name: Build and Push Docker Image
-        run: gcloud builds submit --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:latest .
+        run: gcloud builds submit --async --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:latest .
 
       # 4. Deploy the image to Cloud Run
       - name: Deploy to Cloud Run
