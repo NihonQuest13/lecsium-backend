@@ -47,10 +47,7 @@ def load_model():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Cycle de vie FastAPI optimisé - pas de chargement au démarrage."""
-    logger.info("Démarrage du service web... Initialisation de la base de données.")
-    # Initialize database tables
-    init_db()
-
+    logger.info("Démarrage du service web.")
     logger.info("Le serveur est prêt à répondre aux 'health checks'.")
     # Pas de chargement au démarrage - lazy loading uniquement
 

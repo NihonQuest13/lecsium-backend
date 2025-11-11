@@ -13,19 +13,33 @@ DB_PASS = os.environ.get('DB_PASS')
 DB_NAME = os.environ.get('DB_NAME')
 DB_HOST = os.environ.get('DB_HOST')  # This is the path '/cloudsql/...'
 
-if DB_HOST:
-    # Configuration for Google Cloud SQL (via Cloud Run)
-    DATABASE_URL = f"postgresql+pg8000://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
-else:
-    # Fallback for local development
-    DATABASE_URL = os.environ.get('DATABASE_URL', "postgresql://user:password@localhost/nihon_quest")
+# Determine database type based on environment
+USE_SQLITE = os.environ.get('USE_SQLITE', 'true').lower() == 'true'
 
-# Create engine with connection pooling disabled for Cloud SQL
-engine = create_engine(
-    DATABASE_URL,
-    poolclass=NullPool,  # Disable pooling for Cloud SQL
-    echo=False,  # Set to True for SQL query logging in development
-)
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    if USE_SQLITE:
+        # Use SQLite for development and simple deployments
+        DATABASE_URL = "sqlite:///./nihon_quest.db"
+    elif DB_HOST:
+        # Configuration for Google Cloud SQL (via Cloud Run)
+        DATABASE_URL = f"postgresql+pg8000://{DB_USER}:{DB_PASS}@{DB_NAME}?host={DB_HOST}"
+    else:
+        # Fallback for local PostgreSQL development
+        DATABASE_URL = "postgresql://user:password@localhost/nihon_quest"
+
+if DB_HOST and 'cloudsql' in DATABASE_URL:
+    # Use NullPool for Cloud SQL
+    engine = create_engine(
+        DATABASE_URL,
+        poolclass=NullPool,  # Disable pooling for Cloud SQL
+        echo=False,  # Set to True for SQL query logging in development
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        echo=False,  # Set to True for SQL query logging in development
+    )
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

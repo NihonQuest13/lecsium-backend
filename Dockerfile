@@ -15,6 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # (Copie le dossier 'app', 'main.py' [s'il est là], etc.)
 COPY . .
 
-# 6. Définir la commande de démarrage pour Google Cloud Run
+# 6. Définir la commande de démarrage
 # Cloud Run injecte la variable $PORT automatiquement.
 CMD ["sh", "-c", "gunicorn -w 1 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT app.main:app"]

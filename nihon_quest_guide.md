@@ -17,7 +17,7 @@ Lecsium/
 └── nihon_quest_backend/  # Backend Python
     ├── app/             # Code source FastAPI
     ├── requirements.txt # Dépendances Python
-    └── render.yaml      # Configuration déploiement
+    └── Dockerfile       # Configuration déploiement
 ```
 
 ## Démarrage Local
@@ -77,7 +77,8 @@ FIREBASE_CONFIG=your_config
 ### Backend (Google Cloud Run)
 - Configuration dans `Dockerfile`
 - Déploiement automatique via Git
-- Base de données Cloud SQL PostgreSQL
+- Base de données SQLite (simple et efficace pour le développement)
+- URL : `https://lecsium-api-547693779423.europe-west1.run.app`
 
 ### Frontend (Firebase Hosting)
 - Configuration dans `firebase.json` et `.firebaserc`
