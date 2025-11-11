@@ -13,7 +13,6 @@ torch
 
 # --- AJOUTS POUR GOOGLE CLOUD ---
 google-cloud-storage        # Pour le stockage des fichiers FAISS
-pg8000                      # Un driver DB compatible avec Cloud SQL
 
 # --- AJOUTS POUR AUTHENTIFICATION ET BASE DE DONNÉES ---
 firebase-admin              # Pour la vérification des JWT Firebase
