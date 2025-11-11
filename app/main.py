@@ -22,7 +22,7 @@ logging.basicConfig(
 
 # Création de l'application FastAPI (style du nouveau code)
 app = FastAPI(
-    title="Nihon Quest API",
+    title="Lecsium API",
     description="API Backend pour la génération de romans avec IA",
     version="1.0.0",
     lifespan=lifespan  # ✅ On utilise le 'lifespan' importé

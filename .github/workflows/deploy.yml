@@ -1,49 +1,53 @@
-name: Deploy to Cloud Run
+# Name of the workflow for GitHub
+name: Deploy Backend to Cloud Run
 
+# Trigger: Runs on every 'push' to the 'main' branch
 on:
   push:
     branches:
-      - main  # Change to your default branch
+      - main
 
+# Global variables for this deployment
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: europe-west1  # Change to your preferred region
   SERVICE_NAME: lecsium-api
-  BUCKET_NAME: lecsium-storage-bucket  # Change to your bucket name
+  REGION: europe-west1
+  BUCKET_NAME: supabase-exports-lecsium # The bucket name you created
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    name: Build and Deploy to Cloud Run
+    runs-on: ubuntu-latest # Use a Linux machine for deployment
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      # 1. Get your code from GitHub
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
+      # 2. Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v2
+      # 3. Build your Dockerfile with Cloud Build
+      - name: Build and Push Docker Image
+        run: gcloud builds submit --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:latest .
 
-    - name: Build and push Docker image
-      run: |
-        gcloud builds submit --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA
-
-    - name: Deploy to Cloud Run
-      run: |
-        gcloud run deploy $SERVICE_NAME \
-          --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
-          --platform managed \
-          --region $REGION \
-          --allow-unauthenticated \
-          --timeout=900 \
-          --concurrency=4 \
-          --set-env-vars STORAGE_PATH=$BUCKET_NAME \
-          --set-secrets DEEPL_API_KEY=DEEPL_API_KEY:latest \
-          --set-secrets OPENROUTER_API_KEYS=OPENROUTER_API_KEYS:latest \
-          --set-env-vars DB_USER=postgres \
-          --set-secrets DB_PASS=DB_PASS:latest \
-          --set-env-vars DB_NAME=postgres \
-          --set-env-vars DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}
+      # 4. Deploy the image to Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $SERVICE_NAME \
+            --image gcr.io/$PROJECT_ID/$SERVICE_NAME:latest \
+            --region $REGION \
+            --platform managed \
+            --allow-unauthenticated \
+            --add-cloudsql-instances "${{ secrets.CLOUD_SQL_CONNECTION_NAME }}" \
+            --set-env-vars "STORAGE_PATH=$BUCKET_NAME" \
+            --set-env-vars "DB_USER=postgres" \
+            --set-env-vars "DB_NAME=postgres" \
+            --set-env-vars "DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}" \
+            --set-env-vars "DEEPL_API_KEY=${{ secrets.DEEPL_API_KEY }}" \
+            --set-env-vars "OPENROUTER_API_KEYS=${{ secrets.OPENROUTER_API_KEYS }}" \
+            --set-env-vars "DB_PASS=${{ secrets.DB_PASS }}"

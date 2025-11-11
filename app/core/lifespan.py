@@ -7,10 +7,16 @@ import numpy as np
 import os
 import asyncio
 
+# Disable tqdm progress bars to prevent OSError in threads
+os.environ['TQDM_DISABLE'] = '1'
+
 logger = logging.getLogger(__name__)
 
 ml_models = {}
 model_loaded = False
+
+# Initialize database on startup
+from app.db.connection import init_db
 
 def load_model():
     """Charge le modèle d'IA de manière synchrone (lazy loading)."""
@@ -41,7 +47,11 @@ def load_model():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Cycle de vie FastAPI optimisé - pas de chargement au démarrage."""
-    logger.info("Démarrage du service web... Le serveur est prêt à répondre aux 'health checks'.")
+    logger.info("Démarrage du service web... Initialisation de la base de données.")
+    # Initialize database tables
+    init_db()
+
+    logger.info("Le serveur est prêt à répondre aux 'health checks'.")
     # Pas de chargement au démarrage - lazy loading uniquement
 
     yield  # ⬅️ FastAPI est prêt ici (Render pourra valider le /healthz)

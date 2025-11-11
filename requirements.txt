@@ -10,3 +10,13 @@ deepl
 # --- PyTorch pour CPU seulement ---
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
+
+# --- AJOUTS POUR GOOGLE CLOUD ---
+google-cloud-storage        # Pour le stockage des fichiers FAISS
+google-cloud-sqlalchemy     # Pour la connexion à Cloud SQL (PostgreSQL)
+pg8000                      # Un driver DB compatible avec Cloud SQL
+
+# --- AJOUTS POUR AUTHENTIFICATION ET BASE DE DONNÉES ---
+firebase-admin              # Pour la vérification des JWT Firebase
+sqlalchemy                  # ORM pour la base de données
+alembic                     # Pour les migrations de base de données

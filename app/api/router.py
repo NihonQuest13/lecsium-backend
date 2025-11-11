@@ -1,5 +1,5 @@
 # backend/app/api/router.py (CORRIGÉ ET COMPLET AVEC ROADMAP)
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
@@ -20,13 +20,22 @@ import signal
 import httpx
 import deepl
 import asyncio
+import tempfile
+from google.cloud import storage
+from sqlalchemy.orm import Session
 
 # Correction pour l'import relatif si nécessaire
 try:
     from ..core.lifespan import ml_models, load_model
+    from ..db.connection import get_db
+    from ..db.models import User, Novel, Chapter, Friendship
+    from ..auth.middleware import get_current_user_uid, get_current_user_email
 except ImportError:
      sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
      from app.core.lifespan import ml_models, load_model
+     from app.db.connection import get_db
+     from app.db.models import User, Novel, Chapter, Friendship
+     from app.auth.middleware import get_current_user_uid, get_current_user_email
 
 
 # ===========================================================================
@@ -47,12 +56,20 @@ if not DEEPL_API_KEY:
 client = httpx.AsyncClient(timeout=300.0)
 
 # Configuration du stockage et des verrous
-STORAGE_PATH = Path(os.environ.get('STORAGE_PATH', 'storage'))
-STORAGE_PATH.mkdir(exist_ok=True)
-logging.info(f"Chemin de stockage principal défini sur : {STORAGE_PATH.resolve()}")
+# --- Configuration de Google Cloud Storage ---
+# Pour le développement local, on utilise un mock ou on désactive GCS
+try:
+    storage_client = storage.Client()
+    BUCKET_NAME = os.environ.get('STORAGE_PATH', 'supabase-exports-lecsium')
+except Exception as e:
+    logging.warning(f"GCS non disponible en local: {e}. Utilisation du stockage local.")
+    storage_client = None
+    BUCKET_NAME = None
 
 # Verrous pour un accès concurrentiel sécurisé aux index Faiss
 index_locks = defaultdict(Lock)
+
+# Ancienne variable STORAGE_PATH supprimée car on utilise GCS
 
 @contextmanager
 def get_index_lock(novel_id: str):
@@ -132,18 +149,6 @@ class RoadmapRequest(BaseModel):
 # FONCTIONS UTILITAIRES (Vector Store)
 # ===========================================================================
 
-def get_novel_storage_path(novel_id: str) -> Path:
-    """Retourne le chemin de stockage spécifique pour un roman."""
-    return STORAGE_PATH / novel_id
-
-def get_faiss_index_path(novel_id: str) -> Path:
-    """Retourne le chemin du fichier d'index Faiss pour un roman."""
-    return get_novel_storage_path(novel_id) / "faiss_index.bin"
-
-def get_chapters_db_path(novel_id: str) -> Path:
-    """Retourne le chemin du fichier JSON de métadonnées des chapitres."""
-    return get_novel_storage_path(novel_id) / "chapters.json"
-
 def get_sentence_transformer() -> SentenceTransformer:
     """Récupère le modèle de transformation de phrases depuis le cache global (lazy loading)."""
     model = ml_models.get("sentence_transformer")
@@ -156,27 +161,56 @@ def get_sentence_transformer() -> SentenceTransformer:
             raise HTTPException(status_code=500, detail="Le service de contexte n'est pas initialisé.")
     return model
 
+# --- NOUVELLES FONCTIONS UTILITAIRES (pour Google Cloud Storage) ---
+
+def get_faiss_blob_path(novel_id: str) -> str:
+    """Retourne le chemin *dans* le bucket pour l'index Faiss."""
+    return f"{novel_id}/faiss_index.bin"
+
+def get_chapters_blob_path(novel_id: str) -> str:
+    """Retourne le chemin *dans* le bucket pour le JSON des chapitres."""
+    return f"{novel_id}/chapters.json"
+
 def load_chapters_db(novel_id: str) -> dict:
-    """Charge la base de données des chapitres (ID -> contenu) depuis un JSON."""
-    db_path = get_chapters_db_path(novel_id)
-    if db_path.exists():
-        try:
-            with open(db_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            logging.error(f"Erreur de décodage JSON pour {novel_id}. Fichier corrompu ?")
+    """Charge la base de données des chapitres (JSON) depuis GCS."""
+    try:
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(get_chapters_blob_path(novel_id))
+
+        if not blob.exists():
             return {}
-    return {}
+
+        # Télécharger dans un fichier temporaire
+        with tempfile.NamedTemporaryFile() as tmp_file:
+            blob.download_to_filename(tmp_file.name)
+            with open(tmp_file.name, 'r', encoding='utf-8') as f:
+                return json.load(f)
+
+    except json.JSONDecodeError:
+        logging.error(f"Erreur de décodage JSON pour {novel_id}. Fichier corrompu ?")
+        return {}
+    except Exception as e:
+        logging.error(f"Erreur lors du chargement de chapters.json depuis GCS: {e}")
+        return {}
 
 def save_chapters_db(novel_id: str, db: dict):
-    """Sauvegarde la base de données des chapitres dans un JSON."""
-    db_path = get_chapters_db_path(novel_id)
-    get_novel_storage_path(novel_id).mkdir(exist_ok=True)
+    """Sauvegarde la base de données des chapitres (JSON) vers GCS."""
     try:
-        with open(db_path, 'w', encoding='utf-8') as f:
-            json.dump(db, f, ensure_ascii=False, indent=2)
-    except IOError as e:
-        logging.error(f"Erreur d'écriture lors de la sauvegarde de {db_path}: {e}")
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(get_chapters_blob_path(novel_id))
+
+        # Écrire dans un fichier temporaire
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False) as tmp_file:
+            json.dump(db, tmp_file, ensure_ascii=False, indent=2)
+            tmp_file.close() # Fermer pour s'assurer que tout est écrit
+
+            # Uploader le fichier temporaire
+            blob.upload_from_filename(tmp_file.name)
+
+        os.unlink(tmp_file.name) # Supprimer le fichier temporaire
+
+    except Exception as e:
+        logging.error(f"Erreur d'écriture lors de la sauvegarde de {novel_id} vers GCS: {e}")
 
 # ===========================================================================
 # ENDPOINTS - GÉNÉRATION (Stream, Completion, Roadmap)
@@ -373,26 +407,29 @@ async def index_chapter(request: IndexRequest):
         return await delete_chapter_from_index(DeleteChapterRequest(novel_id=request.novel_id, chapter_id=request.chapter_id))
     try:
         model = get_sentence_transformer()
-        encode_task = lambda: model.encode([request.content], show_progress_bar=False)
+        encode_task = lambda: model.encode([request.content])
         embedding = await run_in_threadpool(encode_task)
         embedding = np.array(embedding, dtype=np.float32)
-        index_path = get_faiss_index_path(request.novel_id)
-        get_novel_storage_path(request.novel_id).mkdir(exist_ok=True)
+
+        bucket = storage_client.bucket(BUCKET_NAME)
+        index_blob_path = get_faiss_blob_path(request.novel_id)
+        index_blob = bucket.blob(index_blob_path)
+
         with get_index_lock(request.novel_id):
-            chapters_db = load_chapters_db(request.novel_id)
+            chapters_db = load_chapters_db(request.novel_id)  # OK, utilise GCS
+
+            # 1. Télécharger l'index existant (s'il existe)
+            if index_blob.exists():
+                with tempfile.NamedTemporaryFile() as tmp_index:
+                    index_blob.download_to_filename(tmp_index.name)
+                    index = faiss.read_index(tmp_index.name)
+            else:
+                index = faiss.IndexIDMap(faiss.IndexFlatL2(embedding.shape[1]))
+
+            # 2. ... (votre logique 'remove_ids' et 'add_with_ids') ...
             d = embedding.shape[1]
             vector_id_to_find = chapters_db.get(request.chapter_id, {}).get('vector_id', -1)
             ids_to_remove = [vector_id_to_find] if vector_id_to_find != -1 else []
-            if index_path.exists():
-                try:
-                    index = faiss.read_index(str(index_path))
-                    if index.d != d:
-                        raise RuntimeError("Dimension mismatch")
-                except (RuntimeError, AssertionError) as e:
-                    logging.warning(f"Impossible de charger/valider l'index Faiss {index_path} (Erreur: {e}). Création d'un nouvel index.")
-                    index = faiss.IndexIDMap(faiss.IndexFlatL2(d))
-            else:
-                index = faiss.IndexIDMap(faiss.IndexFlatL2(d))
             if ids_to_remove:
                 try:
                     selector = faiss.IDSelectorBatch(np.array(ids_to_remove, dtype=np.int64))
@@ -408,9 +445,21 @@ async def index_chapter(request: IndexRequest):
             except RuntimeError as e:
                  logging.error(f"Erreur lors de l'ajout du vecteur {new_vector_id} à l'index {request.novel_id}: {e}")
                  raise HTTPException(status_code=500, detail=f"Erreur critique de l'index Faiss: {e}")
-            faiss.write_index(index, str(index_path)) 
+
+            # 3. Sauvegarder le nouvel index dans un fichier temporaire
+            with tempfile.NamedTemporaryFile(delete=False) as tmp_index_out:
+                faiss.write_index(index, tmp_index_out.name)
+                tmp_index_out.close()
+
+                # 4. Uploader le nouvel index vers GCS
+                index_blob.upload_from_filename(tmp_index_out.name)
+
+            os.unlink(tmp_index_out.name)  # Nettoyer
+
+            # 5. Sauvegarder la DB des chapitres (qui utilise déjà GCS)
             chapters_db[request.chapter_id] = {'vector_id': int(new_vector_id), 'content': request.content}
-            save_chapters_db(request.novel_id, chapters_db)
+            save_chapters_db(request.novel_id, chapters_db)  # OK, utilise GCS
+
         return {"status": "indexed", "novel_id": request.novel_id, "chapter_id": request.chapter_id, "vector_id": int(new_vector_id)}
     except Exception as e:
         logging.error(f"Erreur lors de l'indexation du chapitre {request.novel_id}/{request.chapter_id}: {e}", exc_info=True)
@@ -419,27 +468,75 @@ async def index_chapter(request: IndexRequest):
 @router.post("/get_context")
 async def get_context(request: ContextRequest):
     """Récupère les chapitres les plus similaires."""
-    index_path = get_faiss_index_path(request.novel_id)
-    if not index_path.exists():
-        return {"novel_id": request.novel_id, "similar_chapters_content": []}
-    try:
-        model = get_sentence_transformer()
-        encode_task = lambda: model.encode([request.query], show_progress_bar=False)
-        query_embedding = await run_in_threadpool(encode_task)
-        query_embedding = np.array(query_embedding, dtype=np.float32)
-        with get_index_lock(request.novel_id):
-            index = faiss.read_index(str(index_path))
-            chapters_db = load_chapters_db(request.novel_id)
-            if not chapters_db: return {"novel_id": request.novel_id, "similar_chapters_content": []}
-            vector_id_to_chapter_id = {v['vector_id']: k for k, v in chapters_db.items()}
-            k = min(request.top_k, index.ntotal)
-            if k == 0: return {"novel_id": request.novel_id, "similar_chapters_content": []}
-            distances, vector_ids = index.search(query_embedding, k)
-            similar_chapters_content = [chapters_db[vector_id_to_chapter_id[vid]]['content'] for vid in vector_ids[0] if vid != -1 and vector_id_to_chapter_id.get(vid) in chapters_db]
-        return {"novel_id": request.novel_id, "similar_chapters_content": similar_chapters_content}
-    except Exception as e:
-        logging.error(f"Erreur lors de la récupération du contexte pour {request.novel_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erreur interne lors de la recherche de contexte: {e}")
+    if storage_client is None:
+        # Mode local: utiliser le stockage local
+        try:
+            storage_path = Path("storage") / request.novel_id / "faiss_index.bin"
+            if not storage_path.exists():
+                return {"novel_id": request.novel_id, "similar_chapters_content": []}
+            model = get_sentence_transformer()
+            encode_task = lambda: model.encode([request.query], show_progress_bar=False)
+            query_embedding = await run_in_threadpool(encode_task)
+            query_embedding = np.array(query_embedding, dtype=np.float32)
+            with get_index_lock(request.novel_id):
+                index = faiss.read_index(str(storage_path))
+                chapters_db_path = Path("storage") / request.novel_id / "chapters.json"
+                if not chapters_db_path.exists():
+                    return {"novel_id": request.novel_id, "similar_chapters_content": []}
+                with open(chapters_db_path, 'r', encoding='utf-8') as f:
+                    chapters_db = json.load(f)
+                if not chapters_db: return {"novel_id": request.novel_id, "similar_chapters_content": []}
+                # Handle old format where chapters_db is {chapter_id: content} instead of {chapter_id: {'vector_id': int, 'content': str}}
+                if isinstance(next(iter(chapters_db.values())), str):
+                    # Old format: assume vector_id is int(chapter_id)
+                    vector_id_to_chapter_id = {int(k): k for k in chapters_db.keys()}
+                    similar_chapters_content = []
+                    k = min(request.top_k, index.ntotal)
+                    if k == 0: return {"novel_id": request.novel_id, "similar_chapters_content": []}
+                    distances, vector_ids = index.search(query_embedding, k)
+                    for vid in vector_ids[0]:
+                        if vid != -1 and vid in vector_id_to_chapter_id:
+                            chapter_id = vector_id_to_chapter_id[vid]
+                            similar_chapters_content.append(chapters_db[chapter_id])
+                else:
+                    # New format
+                    vector_id_to_chapter_id = {v['vector_id']: k for k, v in chapters_db.items()}
+                    k = min(request.top_k, index.ntotal)
+                    if k == 0: return {"novel_id": request.novel_id, "similar_chapters_content": []}
+                    distances, vector_ids = index.search(query_embedding, k)
+                    similar_chapters_content = [chapters_db[vector_id_to_chapter_id[vid]]['content'] for vid in vector_ids[0] if vid != -1 and vector_id_to_chapter_id.get(vid) in chapters_db]
+            return {"novel_id": request.novel_id, "similar_chapters_content": similar_chapters_content}
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération du contexte pour {request.novel_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Erreur interne lors de la recherche de contexte: {e}")
+    else:
+        # Mode GCS
+        bucket = storage_client.bucket(BUCKET_NAME)
+        index_blob_path = get_faiss_blob_path(request.novel_id)
+        index_blob = bucket.blob(index_blob_path)
+        if not index_blob.exists():
+            return {"novel_id": request.novel_id, "similar_chapters_content": []}
+        try:
+            model = get_sentence_transformer()
+            encode_task = lambda: model.encode([request.query], show_progress_bar=False)
+            query_embedding = await run_in_threadpool(encode_task)
+            query_embedding = np.array(query_embedding, dtype=np.float32)
+            with get_index_lock(request.novel_id):
+                # Télécharger l'index dans un fichier temporaire
+                with tempfile.NamedTemporaryFile() as tmp_index:
+                    index_blob.download_to_filename(tmp_index.name)
+                    index = faiss.read_index(tmp_index.name)
+                chapters_db = load_chapters_db(request.novel_id)
+                if not chapters_db: return {"novel_id": request.novel_id, "similar_chapters_content": []}
+                vector_id_to_chapter_id = {v['vector_id']: k for k, v in chapters_db.items()}
+                k = min(request.top_k, index.ntotal)
+                if k == 0: return {"novel_id": request.novel_id, "similar_chapters_content": []}
+                distances, vector_ids = index.search(query_embedding, k)
+                similar_chapters_content = [chapters_db[vector_id_to_chapter_id[vid]]['content'] for vid in vector_ids[0] if vid != -1 and vector_id_to_chapter_id.get(vid) in chapters_db]
+            return {"novel_id": request.novel_id, "similar_chapters_content": similar_chapters_content}
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération du contexte pour {request.novel_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Erreur interne lors de la recherche de contexte: {e}")
 
 # ===========================================================================
 # ENDPOINTS - GESTION DU STOCKAGE
@@ -447,24 +544,33 @@ async def get_context(request: ContextRequest):
 
 @router.post("/delete_novel_storage")
 async def delete_novel_storage(request: DeleteRequest):
-    """Supprime l'intégralité du stockage pour un roman."""
-    novel_path = get_novel_storage_path(request.novel_id)
-    if not novel_path.exists():
-        raise HTTPException(status_code=404, detail="Stockage du roman non trouvé.")
+    """Supprime l'intégralité du stockage GCS pour un roman."""
     try:
+        bucket = storage_client.bucket(BUCKET_NAME)
+        # Lister tous les "fichiers" dans le "dossier" du roman
+        blobs_to_delete = list(bucket.list_blobs(prefix=f"{request.novel_id}/"))
+
+        if not blobs_to_delete:
+            raise HTTPException(status_code=404, detail="Stockage du roman non trouvé sur GCS.")
+
         with get_index_lock(request.novel_id):
-            await run_in_threadpool(shutil.rmtree, novel_path)
+            # Supprimer les blobs
+            bucket.delete_blobs(blobs_to_delete)
             if request.novel_id in index_locks: del index_locks[request.novel_id]
+
+        logging.info(f"Stockage GCS supprimé pour le roman {request.novel_id}")
         return {"status": "deleted", "novel_id": request.novel_id}
     except Exception as e:
-        logging.error(f"Erreur inattendue lors de la suppression du stockage {request.novel_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erreur interne lors de la suppression: {e}")
+        logging.error(f"Erreur lors de la suppression du stockage GCS {request.novel_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erreur interne lors de la suppression GCS: {e}")
 
 @router.post("/delete_chapter_from_index")
 async def delete_chapter_from_index(request: DeleteChapterRequest):
     """Supprime un chapitre spécifique de l'index et de la DB."""
-    index_path = get_faiss_index_path(request.novel_id)
-    if not index_path.exists():
+    bucket = storage_client.bucket(BUCKET_NAME)
+    index_blob_path = get_faiss_blob_path(request.novel_id)
+    index_blob = bucket.blob(index_blob_path)
+    if not index_blob.exists():
         return {"status": "not_found", "novel_id": request.novel_id, "chapter_id": request.chapter_id}
     with get_index_lock(request.novel_id):
         chapters_db = load_chapters_db(request.novel_id)
@@ -474,10 +580,19 @@ async def delete_chapter_from_index(request: DeleteChapterRequest):
         save_chapters_db(request.novel_id, chapters_db)
         if vector_id_to_remove != -1:
             try:
-                index = faiss.read_index(str(index_path))
+                # Télécharger l'index dans un fichier temporaire
+                with tempfile.NamedTemporaryFile() as tmp_index:
+                    index_blob.download_to_filename(tmp_index.name)
+                    index = faiss.read_index(tmp_index.name)
                 selector = faiss.IDSelectorBatch(np.array([vector_id_to_remove], dtype=np.int64))
                 index.remove_ids(selector)
-                faiss.write_index(index, str(index_path))
+                # Sauvegarder le nouvel index dans un fichier temporaire
+                with tempfile.NamedTemporaryFile(delete=False) as tmp_index_out:
+                    faiss.write_index(index, tmp_index_out.name)
+                    tmp_index_out.close()
+                    # Uploader le nouvel index vers GCS
+                    index_blob.upload_from_filename(tmp_index_out.name)
+                os.unlink(tmp_index_out.name)  # Nettoyer
                 return {"status": "deleted", "novel_id": request.novel_id, "chapter_id": request.chapter_id}
             except (RuntimeError, ValueError) as e:
                 logging.error(f"Erreur lors de la suppression du vecteur {vector_id_to_remove} de l'index {request.novel_id}: {e}")
@@ -486,13 +601,34 @@ async def delete_chapter_from_index(request: DeleteChapterRequest):
 
 @router.get("/list_indexed_novels")
 async def list_indexed_novels():
-    """Liste tous les novel_id qui ont un stockage sur le disque."""
-    try:
-        indexed_novels = [e.name for e in STORAGE_PATH.iterdir() if e.is_dir() and ((e / "faiss_index.bin").exists() or (e / "chapters.json").exists())]
-        return {"indexed_novels": indexed_novels}
-    except OSError as e:
-        logging.error(f"Erreur lors du parcours du dossier de stockage {STORAGE_PATH}: {e}")
-        raise HTTPException(status_code=500, detail="Erreur interne lors du listage des romans.")
+    """Liste tous les novel_id qui ont un stockage sur GCS ou local."""
+    if storage_client is None:
+        # Mode local: utiliser le stockage local
+        try:
+            storage_path = Path("storage")
+            if storage_path.exists():
+                indexed_novels = [e.name for e in storage_path.iterdir() if e.is_dir() and ((e / "faiss_index.bin").exists() or (e / "chapters.json").exists())]
+            else:
+                indexed_novels = []
+            return {"indexed_novels": indexed_novels}
+        except OSError as e:
+            logging.error(f"Erreur lors du parcours du dossier de stockage local {storage_path}: {e}")
+            raise HTTPException(status_code=500, detail="Erreur interne lors du listage des romans.")
+    else:
+        # Mode GCS
+        try:
+            bucket = storage_client.bucket(BUCKET_NAME)
+            # Lister tous les "dossiers" (préfixes) dans le bucket
+            novel_prefixes = set()
+            for blob in bucket.list_blobs():
+                if '/' in blob.name:
+                    novel_id = blob.name.split('/')[0]
+                    novel_prefixes.add(novel_id)
+            indexed_novels = list(novel_prefixes)
+            return {"indexed_novels": indexed_novels}
+        except Exception as e:
+            logging.error(f"Erreur lors du listage des romans depuis GCS: {e}")
+            raise HTTPException(status_code=500, detail="Erreur interne lors du listage des romans.")
 
 # ===========================================================================
 # ENDPOINTS - SYSTÈME (Santé, Racine)
@@ -507,4 +643,413 @@ async def health_check():
 def read_root():
     """Endpoint racine."""
     return {"status": "Nihon Quest Backend Fonctionnel", "version": "1.3"}
+
+# ===========================================================================
+# ENDPOINTS - AUTHENTIFICATION
+# ===========================================================================
+
+@router.post("/auth/verify-token")
+async def verify_token(decoded_token: dict = Depends(verify_firebase_token)):
+    """Vérifie et retourne les informations du token Firebase."""
+    return {
+        "uid": decoded_token.get("uid"),
+        "email": decoded_token.get("email"),
+        "email_verified": decoded_token.get("email_verified", False),
+        "name": decoded_token.get("name"),
+        "picture": decoded_token.get("picture")
+    }
+
+# ===========================================================================
+# ENDPOINTS - NOVELS CRUD
+# ===========================================================================
+
+class NovelCreateRequest(BaseModel):
+    title: str
+    genre: Optional[str] = None
+    description: Optional[str] = None
+
+class NovelUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    genre: Optional[str] = None
+    description: Optional[str] = None
+
+class ChapterCreateRequest(BaseModel):
+    chapter_number: int
+    title: Optional[str] = None
+    content: str
+
+@router.get("/novels")
+async def get_novels(
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Récupère tous les romans de l'utilisateur connecté."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    novels = db.query(Novel).filter(Novel.author_id == user.id).all()
+    return {"novels": [
+        {
+            "id": novel.id,
+            "title": novel.title,
+            "genre": novel.genre,
+            "description": novel.description,
+            "created_at": novel.created_at,
+            "updated_at": novel.updated_at
+        } for novel in novels
+    ]}
+
+@router.post("/novels")
+async def create_novel(
+    request: NovelCreateRequest,
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Crée un nouveau roman."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    novel = Novel(
+        title=request.title,
+        genre=request.genre,
+        description=request.description,
+        author_id=user.id
+    )
+    db.add(novel)
+    db.commit()
+    db.refresh(novel)
+
+    return {
+        "id": novel.id,
+        "title": novel.title,
+        "genre": novel.genre,
+        "description": novel.description,
+        "created_at": novel.created_at,
+        "updated_at": novel.updated_at
+    }
+
+@router.get("/novels/{novel_id}")
+async def get_novel(
+    novel_id: int,
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Récupère un roman spécifique."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.author_id == user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="Roman non trouvé")
+
+    chapters = db.query(Chapter).filter(Chapter.novel_id == novel_id).all()
+    return {
+        "id": novel.id,
+        "title": novel.title,
+        "genre": novel.genre,
+        "description": novel.description,
+        "created_at": novel.created_at,
+        "updated_at": novel.updated_at,
+        "chapters": [
+            {
+                "id": chapter.id,
+                "chapter_number": chapter.chapter_number,
+                "title": chapter.title,
+                "content": chapter.content,
+                "created_at": chapter.created_at,
+                "updated_at": chapter.updated_at
+            } for chapter in chapters
+        ]
+    }
+
+@router.put("/novels/{novel_id}")
+async def update_novel(
+    novel_id: int,
+    request: NovelUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Met à jour un roman."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.author_id == user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="Roman non trouvé")
+
+    if request.title is not None:
+        novel.title = request.title
+    if request.genre is not None:
+        novel.genre = request.genre
+    if request.description is not None:
+        novel.description = request.description
+
+    db.commit()
+    db.refresh(novel)
+
+    return {
+        "id": novel.id,
+        "title": novel.title,
+        "genre": novel.genre,
+        "description": novel.description,
+        "created_at": novel.created_at,
+        "updated_at": novel.updated_at
+    }
+
+@router.delete("/novels/{novel_id}")
+async def delete_novel(
+    novel_id: int,
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Supprime un roman."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.author_id == user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="Roman non trouvé")
+
+    db.delete(novel)
+    db.commit()
+
+    return {"message": "Roman supprimé avec succès"}
+
+@router.post("/novels/{novel_id}/chapters")
+async def create_chapter(
+    novel_id: int,
+    request: ChapterCreateRequest,
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Ajoute un chapitre à un roman."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.author_id == user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="Roman non trouvé")
+
+    chapter = Chapter(
+        novel_id=novel_id,
+        chapter_number=request.chapter_number,
+        title=request.title,
+        content=request.content
+    )
+    db.add(chapter)
+    db.commit()
+    db.refresh(chapter)
+
+    return {
+        "id": chapter.id,
+        "chapter_number": chapter.chapter_number,
+        "title": chapter.title,
+        "content": chapter.content,
+        "created_at": chapter.created_at,
+        "updated_at": chapter.updated_at
+    }
+
+# ===========================================================================
+# ENDPOINTS - FRIENDS CRUD
+# ===========================================================================
+
+class FriendRequestCreate(BaseModel):
+    receiver_email: str
+
+@router.get("/friends")
+async def get_friends(
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Récupère la liste des amis de l'utilisateur."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    # Récupérer les amis acceptés (envoyés et reçus)
+    sent_requests = db.query(Friendship).filter(
+        Friendship.sender_id == user.id,
+        Friendship.status == 'accepted'
+    ).all()
+
+    received_requests = db.query(Friendship).filter(
+        Friendship.receiver_id == user.id,
+        Friendship.status == 'accepted'
+    ).all()
+
+    friends = []
+    for friendship in sent_requests:
+        friend = db.query(User).filter(User.id == friendship.receiver_id).first()
+        if friend:
+            friends.append({
+                "id": friend.id,
+                "email": friend.email,
+                "display_name": friend.display_name
+            })
+
+    for friendship in received_requests:
+        friend = db.query(User).filter(User.id == friendship.sender_id).first()
+        if friend:
+            friends.append({
+                "id": friend.id,
+                "email": friend.email,
+                "display_name": friend.display_name
+            })
+
+    return {"friends": friends}
+
+@router.post("/friends/send-request")
+async def send_friend_request(
+    request: FriendRequestCreate,
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Envoie une demande d'ami."""
+    sender = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not sender:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    receiver = db.query(User).filter(User.email == request.receiver_email).first()
+    if not receiver:
+        raise HTTPException(status_code=404, detail="Utilisateur destinataire non trouvé")
+
+    if sender.id == receiver.id:
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous ajouter vous-même")
+
+    # Vérifier si une demande existe déjà
+    existing_request = db.query(Friendship).filter(
+        ((Friendship.sender_id == sender.id) & (Friendship.receiver_id == receiver.id)) |
+        ((Friendship.sender_id == receiver.id) & (Friendship.receiver_id == sender.id))
+    ).first()
+
+    if existing_request:
+        raise HTTPException(status_code=400, detail="Une demande d'ami existe déjà")
+
+    friendship = Friendship(sender_id=sender.id, receiver_id=receiver.id)
+    db.add(friendship)
+    db.commit()
+    db.refresh(friendship)
+
+    return {"message": "Demande d'ami envoyée"}
+
+@router.post("/friends/accept-request")
+async def accept_friend_request(
+    sender_id: int,
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Accepte une demande d'ami."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    friendship = db.query(Friendship).filter(
+        Friendship.sender_id == sender_id,
+        Friendship.receiver_id == user.id,
+        Friendship.status == 'pending'
+    ).first()
+
+    if not friendship:
+        raise HTTPException(status_code=404, detail="Demande d'ami non trouvée")
+
+    friendship.status = 'accepted'
+    db.commit()
+
+    return {"message": "Demande d'ami acceptée"}
+
+# ===========================================================================
+# ENDPOINTS - SHARING CRUD
+# ===========================================================================
+
+class ShareNovelRequest(BaseModel):
+    collaborator_email: str
+
+@router.get("/novels/{novel_id}/collaborators")
+async def get_collaborators(
+    novel_id: int,
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Récupère les collaborateurs d'un roman."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.author_id == user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="Roman non trouvé ou accès non autorisé")
+
+    collaborators = db.query(User).join(novel_collaborators).filter(
+        novel_collaborators.c.novel_id == novel_id
+    ).all()
+
+    return {"collaborators": [
+        {
+            "id": collaborator.id,
+            "email": collaborator.email,
+            "display_name": collaborator.display_name
+        } for collaborator in collaborators
+    ]}
+
+@router.post("/novels/{novel_id}/share")
+async def share_novel(
+    novel_id: int,
+    request: ShareNovelRequest,
+    db: Session = Depends(get_db),
+    current_user_uid: str = Depends(get_current_user_uid)
+):
+    """Partage un roman avec un collaborateur."""
+    user = db.query(User).filter(User.firebase_uid == current_user_uid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.author_id == user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="Roman non trouvé ou accès non autorisé")
+
+    collaborator = db.query(User).filter(User.email == request.collaborator_email).first()
+    if not collaborator:
+        raise HTTPException(status_code=404, detail="Collaborateur non trouvé")
+
+    # Vérifier si déjà collaborateur
+    existing_collaboration = db.query(novel_collaborators).filter(
+        novel_collaborators.c.novel_id == novel_id,
+        novel_collaborators.c.user_id == collaborator.id
+    ).first()
+
+    if existing_collaboration:
+        raise HTTPException(status_code=400, detail="Cet utilisateur est déjà collaborateur")
+
+    # Ajouter le collaborateur
+    db.execute(novel_collaborators.insert().values(
+        novel_id=novel_id,
+        user_id=collaborator.id
+    ))
+    db.commit()
+
+    return {"message": "Roman partagé avec succès"}
     
