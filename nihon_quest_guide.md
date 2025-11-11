@@ -79,9 +79,11 @@ FIREBASE_CONFIG=your_config
 - Déploiement automatique via Git
 - Base de données Cloud SQL PostgreSQL
 
-### Frontend (Cloudflare Pages)
-- Build automatique depuis Git
-- Domaine : `nihon-quest.pages.dev`
+### Frontend (Firebase Hosting)
+- Configuration dans `firebase.json` et `.firebaserc`
+- Déploiement automatique via GitHub Actions (nécessite configuration du secret FIREBASE_SERVICE_ACCOUNT_LECSIUM_5BAB1)
+- Domaine : `https://lecsium-5bab1.web.app`
+- **Note importante** : Un push GitHub ne suffit pas forcément pour déclencher le déploiement Firebase. Le workflow GitHub Actions doit être configuré avec les secrets appropriés pour que le déploiement automatique fonctionne.
 
 ## Développement
 
