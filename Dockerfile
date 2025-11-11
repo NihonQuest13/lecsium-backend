@@ -17,4 +17,4 @@ COPY . .
 
 # 6. Définir la commande de démarrage (adaptée de render.yaml)
 # Cloud Run injecte la variable $PORT automatiquement.
-CMD ["sh", "-c", "gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT app.main:app"]
+CMD ["sh", "-c", "gunicorn -w 1 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT app.main:app"]
