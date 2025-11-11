@@ -411,7 +411,7 @@ async def index_chapter(request: IndexRequest):
         raise HTTPException(status_code=503, detail="GCS storage not available")
     try:
         model = get_sentence_transformer()
-        encode_task = lambda: model.encode([request.content])
+        encode_task = lambda: model.encode([request.content], show_progress_bar=False)
         embedding = await run_in_threadpool(encode_task)
         embedding = np.array(embedding, dtype=np.float32)
 

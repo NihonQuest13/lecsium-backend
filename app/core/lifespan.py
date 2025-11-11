@@ -35,7 +35,7 @@ def load_model():
 
         # Vérification simple
         test_sentence = ["Ceci est une phrase de test."]
-        test_embedding = model.encode(test_sentence)
+        test_embedding = model.encode(test_sentence, show_progress_bar=False)
         if test_embedding.shape == (1, 384):
             logger.info("CHARGEMENT PARESSEUX: Test de vérification réussi. Le modèle est opérationnel.")
         else:
