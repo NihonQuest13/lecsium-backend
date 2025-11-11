@@ -36,6 +36,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",  # Développement local
         "https://nihon-quest.pages.dev",  # Domaine spécifique
         "https://nihon-quest-frontend.pages.dev",  # Frontend Cloudflare Pages
+        "https://lecsium-5bab1.web.app",  # Firebase hosting domain
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],  # Inclut OPTIONS pour preflight

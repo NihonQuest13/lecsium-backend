@@ -20,3 +20,35 @@ firebase-admin==6.2.0              # Pour la vérification des JWT Firebase
 sqlalchemy==2.0.23                  # ORM pour la base de données
 alembic==1.12.1                     # Pour les migrations de base de données
 psycopg2-binary==2.9.9              # Driver PostgreSQL
+=======
+fastapi==0.104.1
+uvicorn==0.24.0
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+numpy==1.24.3
+gunicorn==21.2.0
+httpx==0.25.2
+deepl==1.15.0
+
+# --- PyTorch pour CPU seulement ---
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.0
+
+# --- AJOUTS POUR GOOGLE CLOUD ---
+google-cloud-storage==2.10.0        # Pour le stockage des fichiers FAISS
+pg8000==1.30.3                      # Un driver DB compatible avec Cloud SQL
+
+# --- AJOUTS POUR AUTHENTIFICATION ET BASE DE DONNÉES ---
+firebase-admin==6.2.0              # Pour la vérification des JWT Firebase
+sqlalchemy==2.0.23                  # ORM pour la base de données
+alembic==1.12.1                     # Pour les migrations de base de données
+psycopg2-binary==2.9.9              # Driver PostgreSQL
+=======
+google-cloud-storage        # Pour le stockage des fichiers FAISS
+>>>>>>> 08b33ee3429fece6cbee302eb17855845d6b6529
+
+# --- AJOUTS POUR AUTHENTIFICATION ET BASE DE DONNÉES ---
+firebase-admin==6.2.0              # Pour la vérification des JWT Firebase
+sqlalchemy==2.0.23                  # ORM pour la base de données
+alembic==1.12.1                     # Pour les migrations de base de données
+psycopg2-binary==2.9.9              # Driver PostgreSQL
